@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>血液ガス分析インタープリター</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', 'Yu Gothic', sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #2d3748;
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 640px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    .card h2 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #718096;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+
+    /* 血液タイプ選択バー */
+    .type-selector {
+      display: flex;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1.5px solid #cbd5e0;
+    }
+
+    .type-selector input[type="radio"] { display: none; }
+
+    .type-selector label {
+      flex: 1;
+      text-align: center;
+      padding: 8px 4px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      background: #f7fafc;
+      color: #718096;
+      border-right: 1px solid #cbd5e0;
+      user-select: none;
+    }
+
+    .type-selector label:last-child { border-right: none; }
+
+    .type-selector input[value="arterial"]:checked + label {
+      background: #fc8181;
+      color: #fff;
+    }
+
+    .type-selector input[value="venous"]:checked + label {
+      background: #63b3ed;
+      color: #fff;
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 8px;
+    }
+
+    .field label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      width: 110px;
+      flex-shrink: 0;
+      color: #4a5568;
+    }
+
+    .field input[type="number"] {
+      flex: 1;
+      padding: 7px 10px;
+      border: 1.5px solid #cbd5e0;
+      border-radius: 7px;
+      font-size: 0.9rem;
+      transition: border-color 0.15s;
+      background: #f7fafc;
+    }
+
+    .field input[type="number"]:focus {
+      outline: none;
+      border-color: #4299e1;
+      background: #fff;
+    }
+
+    .field .unit {
+      font-size: 0.75rem;
+      color: #a0aec0;
+      width: 60px;
+      flex-shrink: 0;
+    }
+
+    .field .normal {
+      font-size: 0.7rem;
+      color: #a0aec0;
+      width: 80px;
+      flex-shrink: 0;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .radio-group label {
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      color: #4a5568;
+      font-weight: 400;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      padding: 11px;
+      background: #4299e1;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: background 0.15s;
+    }
+
+    .btn:hover { background: #3182ce; }
+
+    .btn-reset {
+      background: #e2e8f0;
+      color: #4a5568;
+      margin-top: 6px;
+    }
+
+    .btn-reset:hover { background: #cbd5e0; }
+
+    #results {
+      grid-column: 1 / -1;
+      display: none;
+    }
+
+    #results.visible { display: block; }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .result-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+      border-left: 4px solid #e2e8f0;
+    }
+
+    .result-card.normal  { border-left-color: #48bb78; }
+    .result-card.warning { border-left-color: #ed8936; }
+    .result-card.danger  { border-left-color: #fc8181; }
+    .result-card.info    { border-left-color: #63b3ed; }
+    .result-card.purple  { border-left-color: #b794f4; }
+
+    .result-card .rc-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #718096;
+      margin-bottom: 8px;
+    }
+
+    .result-card .rc-main {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #2d3748;
+      margin-bottom: 6px;
+    }
+
+    .result-card .rc-detail {
+      font-size: 0.8rem;
+      color: #718096;
+      line-height: 1.6;
+      white-space: pre-line;
+    }
+
+    .summary-box {
+      background: #ebf8ff;
+      border: 1.5px solid #bee3f8;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+
+    .summary-box.venous-summary {
+      background: #fff5f5;
+      border-color: #fed7d7;
+    }
+
+    .summary-box .sb-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #2b6cb0;
+      margin-bottom: 8px;
+    }
+
+    .summary-box.venous-summary .sb-title { color: #c53030; }
+
+    .summary-box .sb-main {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1a365d;
+      line-height: 1.5;
+    }
+
+    .conversion-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      margin-top: 8px;
+    }
+
+    .conversion-table th {
+      background: #edf2f7;
+      padding: 5px 8px;
+      text-align: left;
+      font-weight: 700;
+      color: #4a5568;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .conversion-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #f0f4f8;
+      color: #4a5568;
+    }
+
+    .conversion-table tr:last-child td { border-bottom: none; }
+
+    .est-val { color: #2b6cb0; font-weight: 700; }
+
+    #results h2 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #718096;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+
+    .venous-badge {
+      display: inline-block;
+      background: #ebf8ff;
+      color: #2b6cb0;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    .disclaimer {
+      text-align: center;
+      font-size: 0.72rem;
+      color: #a0aec0;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>血液ガス分析インタープリター</h1>
+
+<div class="container">
+
+  <!-- 必須パラメータ -->
+  <div class="card">
+    <h2>必須パラメータ</h2>
+
+    <!-- 血液タイプ選択 -->
+    <div class="type-selector">
+      <input type="radio" name="bloodtype" id="bt-art" value="arterial" checked onchange="onBloodTypeChange()">
+      <label for="bt-art">動脈血 (ABG)</label>
+      <input type="radio" name="bloodtype" id="bt-ven" value="venous" onchange="onBloodTypeChange()">
+      <label for="bt-ven">静脈血 (VBG)</label>
+    </div>
+
+    <div class="field">
+      <label id="label-pH">pH</label>
+      <input type="number" id="pH" placeholder="例: 7.40" step="0.01" min="6.5" max="8.0">
+      <span class="unit"></span>
+      <span class="normal" id="norm-pH">7.35 – 7.45</span>
+    </div>
+    <div class="field">
+      <label id="label-pco2">PaCO₂</label>
+      <input type="number" id="pco2" placeholder="例: 40" step="0.1">
+      <span class="unit">mmHg</span>
+      <span class="normal" id="norm-pco2">35 – 45</span>
+    </div>
+    <div class="field">
+      <label>HCO₃⁻</label>
+      <input type="number" id="hco3" placeholder="例: 24" step="0.1">
+      <span class="unit">mEq/L</span>
+      <span class="normal" id="norm-hco3">22 – 26</span>
+    </div>
+    <div class="field">
+      <label id="label-po2">PaO₂</label>
+      <input type="number" id="pao2" placeholder="例: 90" step="1">
+      <span class="unit">mmHg</span>
+      <span class="normal" id="norm-po2">80 – 100</span>
+    </div>
+
+    <div class="field">
+      <label>急性/慢性</label>
+      <div class="radio-group">
+        <label><input type="radio" name="acuity" value="acute" checked> 急性</label>
+        <label><input type="radio" name="acuity" value="chronic"> 慢性</label>
+        <label><input type="radio" name="acuity" value="unknown"> 不明</label>
+      </div>
+    </div>
+
+    <button class="btn" onclick="interpret()">解釈する</button>
+    <button class="btn btn-reset" onclick="reset()">リセット</button>
+  </div>
+
+  <!-- オプションパラメータ -->
+  <div class="card">
+    <h2>オプションパラメータ</h2>
+
+    <div class="field">
+      <label>Na⁺</label>
+      <input type="number" id="na" placeholder="例: 140" step="1">
+      <span class="unit">mEq/L</span>
+      <span class="normal">136 – 145</span>
+    </div>
+    <div class="field">
+      <label>Cl⁻</label>
+      <input type="number" id="cl" placeholder="例: 104" step="1">
+      <span class="unit">mEq/L</span>
+      <span class="normal">98 – 107</span>
+    </div>
+    <div class="field">
+      <label>Albumin</label>
+      <input type="number" id="alb" placeholder="例: 4.0" step="0.1">
+      <span class="unit">g/dL</span>
+      <span class="normal">3.5 – 5.0</span>
+    </div>
+    <div class="field">
+      <label>Lactate</label>
+      <input type="number" id="lac" placeholder="例: 1.2" step="0.1">
+      <span class="unit">mmol/L</span>
+      <span class="normal">&lt; 2.0</span>
+    </div>
+    <div class="field" id="fio2-field">
+      <label>FiO₂</label>
+      <input type="number" id="fio2" placeholder="例: 0.21" step="0.01" min="0.21" max="1.0">
+      <span class="unit"></span>
+      <span class="normal">0.21 – 1.0</span>
+    </div>
+    <div class="field">
+      <label>年齢</label>
+      <input type="number" id="age" placeholder="例: 65" step="1" min="0" max="120">
+      <span class="unit">歳</span>
+      <span class="normal"></span>
+    </div>
+    <div class="field">
+      <label id="label-so2">SaO₂</label>
+      <input type="number" id="sao2" placeholder="例: 98" step="0.1">
+      <span class="unit">%</span>
+      <span class="normal" id="norm-so2">&gt; 95</span>
+    </div>
+  </div>
+
+  <!-- 結果 -->
+  <div id="results" class="card">
+    <h2 id="result-title">解釈結果</h2>
+    <div id="summary-area"></div>
+    <div id="result-grid" class="result-grid"></div>
+  </div>
+
+</div>
+
+<p class="disclaimer">※ 本ツールは教育・参考目的です。臨床判断は必ず医師が行ってください。</p>
+
+<script>
+// ── 正常値定義 ──────────────────────────────────────────────────────
+const REF = {
+  arterial: {
+    pH:  { lo: 7.35, hi: 7.45, label: '7.35 – 7.45' },
+    pco2:{ lo: 35,   hi: 45,   label: '35 – 45' },
+    hco3:{ lo: 22,   hi: 26,   label: '22 – 26' },
+    po2: { lo: 80,   hi: 100,  label: '80 – 100' },
+    so2: { lo: 95,   hi: 100,  label: '> 95' },
+    pco2Label: 'PaCO₂', po2Label: 'PaO₂', so2Label: 'SaO₂',
+  },
+  venous: {
+    pH:  { lo: 7.31, hi: 7.41, label: '7.31 – 7.41' },
+    pco2:{ lo: 41,   hi: 51,   label: '41 – 51' },
+    hco3:{ lo: 23,   hi: 27,   label: '23 – 27' },
+    po2: { lo: 35,   hi: 45,   label: '35 – 45' },
+    so2: { lo: 60,   hi: 80,   label: '60 – 80' },
+    pco2Label: 'PvCO₂', po2Label: 'PvO₂', so2Label: 'SvO₂',
+  }
+};
+
+function getBloodType() {
+  return document.querySelector('input[name="bloodtype"]:checked').value;
+}
+
+function getAcuity() {
+  return document.querySelector('input[name="acuity"]:checked').value;
+}
+
+function onBloodTypeChange() {
+  const bt = getBloodType();
+  const r = REF[bt];
+  document.getElementById('norm-pH').textContent  = r.pH.label;
+  document.getElementById('norm-pco2').textContent = r.pco2.label;
+  document.getElementById('norm-hco3').textContent = r.hco3.label;
+  document.getElementById('norm-po2').textContent  = r.po2.label;
+  document.getElementById('norm-so2').textContent  = r.so2.label;
+  document.getElementById('label-pco2').textContent = r.pco2Label;
+  document.getElementById('label-po2').textContent  = r.po2Label;
+  document.getElementById('label-so2').textContent  = r.so2Label;
+
+  // 静脈血ではFiO2・A-a勾配は意味がないのでグレーアウト
+  const fio2field = document.getElementById('fio2-field');
+  fio2field.style.opacity = bt === 'venous' ? '0.4' : '1';
+  fio2field.style.pointerEvents = bt === 'venous' ? 'none' : 'auto';
+
+  // PO2ラベル
+  document.getElementById('label-pH').textContent = 'pH';
+}
+
+function val(id) {
+  const v = parseFloat(document.getElementById(id).value);
+  return isNaN(v) ? null : v;
+}
+
+function fmt(n, d = 1) {
+  return n == null ? '—' : n.toFixed(d);
+}
+
+// ── メイン解釈 ──────────────────────────────────────────────────────
+function interpret() {
+  const bt     = getBloodType();
+  const ref    = REF[bt];
+  const acuity = getAcuity();
+
+  const pH   = val('pH');
+  const pco2 = val('pco2');
+  const hco3 = val('hco3');
+  const pao2 = val('pao2');
+  const na   = val('na');
+  const cl   = val('cl');
+  const alb  = val('alb');
+  const lac  = val('lac');
+  const fio2 = bt === 'arterial' ? val('fio2') : null;  // 静脈血では使わない
+  const age  = val('age');
+  const sao2 = val('sao2');
+
+  if (pH == null || pco2 == null || hco3 == null) {
+    alert('pH、CO₂、HCO₃⁻ は必須です。');
+    return;
+  }
+
+  const cards = [];
+  const diagnoses = [];
+  const isVenous = bt === 'venous';
+
+  // ── 静脈血→動脈血換算 ──────────────────────────────────────────
+  // pH_art ≈ pH_ven + 0.04 (範囲 0.02–0.04)
+  // PCO2_art ≈ PCO2_ven - 5  (範囲 4–6)
+  // HCO3_art ≈ HCO3_ven - 1  (ほぼ同等)
+  // PO2: 換算不可
+  let eph, epco2, ehco3;
+  if (isVenous) {
+    eph   = pH   + 0.04;
+    epco2 = pco2 - 5;
+    ehco3 = hco3 - 1;
+
+    cards.push({
+      title: '推定動脈血値（VBG→ABG換算）',
+      color: 'info',
+      main: `推定pH: ${fmt(eph, 2)}　推定PaCO₂: ${fmt(epco2)} mmHg`,
+      detail: buildConvTable(pH, pco2, hco3, eph, epco2, ehco3),
+      isTable: true
+    });
+  }
+
+  // 解釈に使う値（静脈血の場合は推定動脈値を使い、ラベルに注記）
+  const interpPH   = isVenous ? eph   : pH;
+  const interpPCO2 = isVenous ? epco2 : pco2;
+  const interpHCO3 = isVenous ? ehco3 : hco3;
+  const interpNote = isVenous ? '（推定動脈値で評価）' : '';
+
+  // ── Step 1: pH ──────────────────────────────────────────────────
+  let phStatus, phColor;
+  if      (pH < ref.pH.lo) { phStatus = 'アシデミア'; phColor = 'danger'; }
+  else if (pH > ref.pH.hi) { phStatus = 'アルカレミア'; phColor = 'warning'; }
+  else                     { phStatus = '正常範囲'; phColor = 'normal'; }
+
+  const phLabel = isVenous ? 'pH（静脈血）' : 'pH';
+  cards.push({
+    title: phLabel,
+    color: phColor,
+    main: `${pH.toFixed(2)} → ${phStatus}`,
+    detail: `基準値: ${ref.pH.label}\n${isVenous ? `推定動脈pH: ${fmt(eph, 2)}` : ''}`
+  });
+
+  // ── Step 2: 一次性障害（推定動脈値基準）───────────────────────────
+  const aRef = REF.arterial;  // 動脈血基準で障害判定
+  const respAcidosis  = interpPCO2 > aRef.pco2.hi;
+  const respAlkalosis = interpPCO2 < aRef.pco2.lo;
+  const metAcidosis   = interpHCO3 < aRef.hco3.lo;
+  const metAlkalosis  = interpHCO3 > aRef.hco3.hi;
+
+  let primaryDisorder = '', primaryType = '';
+
+  if (interpPH < 7.35) {
+    if (respAcidosis && !metAcidosis)       { primaryDisorder = '呼吸性アシドーシス（代謝性代償あり）'; primaryType = 'resp-acid'; }
+    else if (metAcidosis && !respAcidosis)  { primaryDisorder = '代謝性アシドーシス（呼吸性代償あり）'; primaryType = 'met-acid'; }
+    else if (respAcidosis && metAcidosis)   { primaryDisorder = '混合性アシドーシス（呼吸性＋代謝性）'; primaryType = 'mixed'; }
+    else { primaryDisorder = '判定困難（pH低下・CO₂/HCO₃正常）'; primaryType = 'unknown'; }
+  } else if (interpPH > 7.45) {
+    if (respAlkalosis && !metAlkalosis)     { primaryDisorder = '呼吸性アルカローシス（代謝性代償あり）'; primaryType = 'resp-alk'; }
+    else if (metAlkalosis && !respAlkalosis){ primaryDisorder = '代謝性アルカローシス（呼吸性代償あり）'; primaryType = 'met-alk'; }
+    else if (respAlkalosis && metAlkalosis) { primaryDisorder = '混合性アルカローシス（呼吸性＋代謝性）'; primaryType = 'mixed'; }
+    else { primaryDisorder = '判定困難（pH上昇・CO₂/HCO₃正常）'; primaryType = 'unknown'; }
+  } else {
+    if (!respAcidosis && !respAlkalosis && !metAcidosis && !metAlkalosis) {
+      primaryDisorder = '正常（または相殺する混合性障害）'; primaryType = 'normal';
+    } else {
+      primaryDisorder = '相殺する混合性障害の可能性'; primaryType = 'mixed';
+    }
+  }
+
+  diagnoses.push(primaryDisorder);
+
+  cards.push({
+    title: `一次性障害${interpNote}`,
+    color: primaryType === 'normal' ? 'normal' : primaryType.includes('mixed') ? 'danger' : 'warning',
+    main: primaryDisorder,
+    detail: `${isVenous ? `推定PaCO₂: ${fmt(interpPCO2)} mmHg　推定HCO₃⁻: ${fmt(interpHCO3)} mEq/L` : `PaCO₂: ${fmt(pco2)} mmHg　HCO₃⁻: ${fmt(hco3)} mEq/L`}`
+  });
+
+  // ── Step 3: 代償評価 ────────────────────────────────────────────
+  let compDetails = [], compStatus = '', compColor = 'info', additionalDisorder = '';
+
+  if (primaryType === 'met-acid') {
+    const expPCO2 = 1.5 * interpHCO3 + 8;
+    const lo = expPCO2 - 2, hi = expPCO2 + 2;
+    compDetails.push(`期待PaCO₂ = 1.5 × ${fmt(interpHCO3)} + 8 = ${fmt(expPCO2)} ± 2 mmHg`);
+    compDetails.push(`許容範囲: ${fmt(lo)} – ${fmt(hi)} mmHg`);
+    compDetails.push(`${isVenous ? '推定' : '実測'}PaCO₂: ${fmt(interpPCO2)} mmHg`);
+    if (interpPCO2 < lo)      { compStatus = '代償過剰 → 合併呼吸性アルカローシス'; additionalDisorder = '合併: 呼吸性アルカローシス'; compColor = 'danger'; }
+    else if (interpPCO2 > hi) { compStatus = '代償不十分 → 合併呼吸性アシドーシス'; additionalDisorder = '合併: 呼吸性アシドーシス'; compColor = 'danger'; }
+    else                      { compStatus = '適切な代償'; compColor = 'normal'; }
+
+  } else if (primaryType === 'met-alk') {
+    const expPCO2 = 0.7 * interpHCO3 + 21;
+    const lo = expPCO2 - 2, hi = expPCO2 + 2;
+    compDetails.push(`期待PaCO₂ = 0.7 × ${fmt(interpHCO3)} + 21 = ${fmt(expPCO2)} ± 2 mmHg`);
+    compDetails.push(`許容範囲: ${fmt(lo)} – ${fmt(hi)} mmHg`);
+    compDetails.push(`${isVenous ? '推定' : '実測'}PaCO₂: ${fmt(interpPCO2)} mmHg`);
+    if (interpPCO2 < lo)      { compStatus = '代償過剰 → 合併呼吸性アルカローシス'; additionalDisorder = '合併: 呼吸性アルカローシス'; compColor = 'danger'; }
+    else if (interpPCO2 > hi) { compStatus = '代償不十分 → 合併呼吸性アシドーシス'; additionalDisorder = '合併: 呼吸性アシドーシス'; compColor = 'danger'; }
+    else                      { compStatus = '適切な代償'; compColor = 'normal'; }
+
+  } else if (primaryType === 'resp-acid') {
+    const dPCO2 = interpPCO2 - 40;
+    let expHCO3, lo, hi, rule;
+    if (acuity === 'acute') {
+      expHCO3 = 24 + 0.1 * dPCO2; lo = expHCO3 - 3; hi = expHCO3 + 3; rule = '急性: 0.1 × ΔPaCO₂';
+    } else if (acuity === 'chronic') {
+      expHCO3 = 24 + 0.35 * dPCO2; lo = expHCO3 - 3; hi = expHCO3 + 3; rule = '慢性: 0.35 × ΔPaCO₂';
+    } else {
+      compDetails.push(`急性代償: 期待HCO₃⁻ = ${fmt(24 + 0.1 * dPCO2)} ± 3 mEq/L`);
+      compDetails.push(`慢性代償: 期待HCO₃⁻ = ${fmt(24 + 0.35 * dPCO2)} ± 3 mEq/L`);
+      compDetails.push(`${isVenous ? '推定' : '実測'}HCO₃⁻: ${fmt(interpHCO3)} mEq/L`);
+      compStatus = '急性/慢性の評価が必要'; compColor = 'info'; lo = null;
+    }
+    if (lo !== null) {
+      compDetails.push(`${rule}: 期待HCO₃⁻ = ${fmt(expHCO3)} ± 3 mEq/L`);
+      compDetails.push(`許容範囲: ${fmt(lo)} – ${fmt(hi)} mEq/L`);
+      compDetails.push(`${isVenous ? '推定' : '実測'}HCO₃⁻: ${fmt(interpHCO3)} mEq/L`);
+      if (interpHCO3 < lo)      { compStatus = '代償不十分 → 合併代謝性アシドーシス'; additionalDisorder = '合併: 代謝性アシドーシス'; compColor = 'danger'; }
+      else if (interpHCO3 > hi) { compStatus = '代償過剰 → 合併代謝性アルカローシス'; additionalDisorder = '合併: 代謝性アルカローシス'; compColor = 'danger'; }
+      else                      { compStatus = '適切な代償'; compColor = 'normal'; }
+    }
+
+  } else if (primaryType === 'resp-alk') {
+    const dPCO2 = 40 - interpPCO2;
+    let expHCO3, lo, hi, rule;
+    if (acuity === 'acute') {
+      expHCO3 = 24 - 0.2 * dPCO2; lo = expHCO3 - 3; hi = expHCO3 + 3; rule = '急性: 0.2 × ΔPaCO₂';
+    } else if (acuity === 'chronic') {
+      expHCO3 = 24 - 0.5 * dPCO2; lo = expHCO3 - 3; hi = expHCO3 + 3; rule = '慢性: 0.5 × ΔPaCO₂';
+    } else {
+      compDetails.push(`急性代償: 期待HCO₃⁻ = ${fmt(24 - 0.2 * dPCO2)} ± 3 mEq/L`);
+      compDetails.push(`慢性代償: 期待HCO₃⁻ = ${fmt(24 - 0.5 * dPCO2)} ± 3 mEq/L`);
+      compDetails.push(`${isVenous ? '推定' : '実測'}HCO₃⁻: ${fmt(interpHCO3)} mEq/L`);
+      compStatus = '急性/慢性の評価が必要'; compColor = 'info'; lo = null;
+    }
+    if (lo !== null) {
+      compDetails.push(`${rule}: 期待HCO₃⁻ = ${fmt(expHCO3)} ± 3 mEq/L`);
+      compDetails.push(`許容範囲: ${fmt(lo)} – ${fmt(hi)} mEq/L`);
+      compDetails.push(`${isVenous ? '推定' : '実測'}HCO₃⁻: ${fmt(interpHCO3)} mEq/L`);
+      if (interpHCO3 < lo)      { compStatus = '代償不十分 → 合併代謝性アシドーシス'; additionalDisorder = '合併: 代謝性アシドーシス'; compColor = 'danger'; }
+      else if (interpHCO3 > hi) { compStatus = '代償過剰 → 合併代謝性アルカローシス'; additionalDisorder = '合併: 代謝性アルカローシス'; compColor = 'danger'; }
+      else                      { compStatus = '適切な代償'; compColor = 'normal'; }
+    }
+  } else {
+    compStatus = '代償評価は一次障害確定後に';
+    compColor = 'info';
+  }
+
+  if (additionalDisorder) diagnoses.push(additionalDisorder);
+
+  if (compDetails.length > 0 || compStatus) {
+    cards.push({ title: '代償の評価', color: compColor, main: compStatus, detail: compDetails.join('\n') });
+  }
+
+  // ── Step 4: Anion Gap ─────────────────────────────────────────────
+  if (na != null && cl != null) {
+    const ag = na - (cl + hco3);
+    let agCorr = ag;
+    let agCorrNote = '';
+    if (alb != null) {
+      agCorr = ag + 2.5 * (4 - alb);
+      agCorrNote = `\nAlb補正AG: ${fmt(agCorr)} mEq/L（補正前: ${fmt(ag)}）`;
+    }
+    const agHigh = agCorr > 12;
+    let agDetail = `AG = ${fmt(na)} − (${fmt(cl)} + ${fmt(hco3)}) = ${fmt(ag)} mEq/L`;
+    if (agCorrNote) agDetail += agCorrNote;
+    agDetail += '\n基準値: 8 – 12 mEq/L';
+    if (isVenous) agDetail += '\n※ AGの算出には静脈血HCO₃⁻を使用';
+    if (agHigh) {
+      agDetail += '\n\n高AG原因（MUDPILES）:\nM: メタノール / U: 尿毒症\nD: DKA / P: プロピレングリコール\nI: INH・鉄 / L: 乳酸アシドーシス\nE: エチレングリコール / S: サリチル酸';
+    } else {
+      agDetail += '\n\n正常AG代謝性アシドーシス原因（HARDUPS）:\nH: 高栄養 / A: アセタゾラミド\nR: RTA / D: 下痢\nU: 尿管ルート変更 / P: 膵瘻\nS: 生食大量投与';
+    }
+    cards.push({
+      title: 'アニオンギャップ',
+      color: agHigh ? 'warning' : 'normal',
+      main: `${agHigh ? '高AG' : '正常AG'}: ${fmt(alb != null ? agCorr : ag)} mEq/L`,
+      detail: agDetail
+    });
+
+    if (agHigh && (primaryType === 'met-acid' || primaryType === 'mixed')) {
+      const deltaAG   = agCorr - 12;
+      const deltaHCO3 = 24 - hco3;
+      if (deltaHCO3 !== 0) {
+        const dd = deltaAG / deltaHCO3;
+        let ddInterp;
+        if      (dd < 0.4)  ddInterp = '純粋な正常AG代謝性アシドーシス';
+        else if (dd < 1.0)  ddInterp = '混合性: 高AG + 正常AG代謝性アシドーシス';
+        else if (dd <= 2.0) ddInterp = '純粋な高AG代謝性アシドーシス';
+        else                ddInterp = '高AG代謝性アシドーシス + 代謝性アルカローシス';
+        cards.push({
+          title: 'Δ-Δ比',
+          color: dd >= 1 && dd <= 2 ? 'normal' : 'warning',
+          main: `${fmt(dd, 2)} → ${ddInterp}`,
+          detail: `Δ-Δ = (AG−12) / (24−HCO₃⁻)\n= (${fmt(agCorr)}−12) / (24−${fmt(hco3)})\n= ${fmt(dd, 2)}\n\n< 0.4: 純粋NAGMA\n0.4–1.0: 混合性\n1.0–2.0: 純粋HAGMA\n> 2.0: HAGMA + 代謝性アルカローシス`
+        });
+      }
+    }
+  }
+
+  // ── Step 5: PO₂ / 酸素化 ─────────────────────────────────────────
+  if (pao2 != null) {
+    if (isVenous) {
+      // 静脈血PO₂ → SvO₂・混合静脈血酸素飽和度として評価
+      let svo2Status, svo2Color;
+      if      (pao2 >= 35 && pao2 <= 45) { svo2Status = '正常'; svo2Color = 'normal'; }
+      else if (pao2 < 35)                { svo2Status = '低下（組織酸素需給バランス悪化の可能性）'; svo2Color = 'danger'; }
+      else                               { svo2Status = '上昇（高拍出・敗血症早期・左右シャント等）'; svo2Color = 'warning'; }
+
+      let detail = `PvO₂: ${fmt(pao2, 0)} mmHg\n基準値: 35 – 45 mmHg\n\n`;
+      detail += `★ PvO₂から動脈PaO₂を推定することはできません。\n  酸素化評価には動脈血ガス（ABG）が必要です。`;
+      if (sao2 != null) detail += `\n\nSvO₂: ${fmt(sao2, 1)}%（基準値: 60 – 80%）`;
+
+      cards.push({
+        title: '静脈血PvO₂',
+        color: svo2Color,
+        main: `PvO₂ ${fmt(pao2, 0)} mmHg → ${svo2Status}`,
+        detail
+      });
+    } else {
+      // 動脈血PaO₂
+      let o2Status, o2Color;
+      if      (pao2 >= 80) { o2Status = '正常'; o2Color = 'normal'; }
+      else if (pao2 >= 60) { o2Status = '軽度低酸素血症'; o2Color = 'warning'; }
+      else if (pao2 >= 40) { o2Status = '中等度低酸素血症'; o2Color = 'danger'; }
+      else                 { o2Status = '重度低酸素血症'; o2Color = 'danger'; }
+
+      let o2Detail = `PaO₂: ${fmt(pao2, 0)} mmHg`;
+
+      if (fio2 != null) {
+        const PAO2 = fio2 * (760 - 47) - pco2 / 0.8;
+        const aaGrad = PAO2 - pao2;
+        const normalAaGrad = age != null ? (age / 4 + 4) : 15;
+        const aaHigh = aaGrad > normalAaGrad;
+        o2Detail += `\n\nA-a勾配 = PAO₂ − PaO₂`;
+        o2Detail += `\nPAO₂ = ${fmt(fio2, 2)} × (760−47) − ${fmt(pco2)}/0.8 = ${fmt(PAO2)} mmHg`;
+        o2Detail += `\nA-a勾配 = ${fmt(PAO2)} − ${fmt(pao2)} = ${fmt(aaGrad)} mmHg`;
+        o2Detail += `\n正常上限: ${fmt(normalAaGrad)} mmHg${age != null ? '（年齢/4+4）' : '（推定値）'}`;
+        o2Detail += `\n判定: ${aaHigh ? 'A-a勾配 拡大（V/Q不均衡・シャント・拡散障害）' : 'A-a勾配 正常（純粋な換気低下）'}`;
+        const pf = pao2 / fio2;
+        let pfInterp = pf >= 300 ? '正常' : pf >= 200 ? '軽度〜中等度（ARDS軽中等症）' : '重度低酸素（ARDS重症）';
+        o2Detail += `\n\nP/F比 = ${fmt(pao2, 0)} / ${fmt(fio2, 2)} = ${fmt(pf, 0)} → ${pfInterp}`;
+      }
+
+      if (sao2 != null) o2Detail += `\nSaO₂: ${fmt(sao2, 1)}%`;
+
+      cards.push({ title: '酸素化', color: o2Color, main: `PaO₂ ${fmt(pao2, 0)} mmHg → ${o2Status}`, detail: o2Detail });
+    }
+  }
+
+  // ── Lactate ──────────────────────────────────────────────────────
+  if (lac != null) {
+    let lacStatus, lacColor;
+    if      (lac < 2)  { lacStatus = '正常'; lacColor = 'normal'; }
+    else if (lac < 4)  { lacStatus = '軽度上昇'; lacColor = 'warning'; }
+    else               { lacStatus = '重度上昇（乳酸アシドーシス疑い）'; lacColor = 'danger'; }
+    cards.push({
+      title: '乳酸',
+      color: lacColor,
+      main: `${fmt(lac, 1)} mmol/L → ${lacStatus}`,
+      detail: `基準値: < 2.0 mmol/L\n2–4: 軽度（低灌流・運動等）\n> 4: 乳酸アシドーシス（敗血症・ショック等）`
+    });
+  }
+
+  // ── 結果表示 ──────────────────────────────────────────────────────
+  document.getElementById('result-title').innerHTML =
+    `解釈結果 <span class="venous-badge">${isVenous ? '静脈血 (VBG)' : '動脈血 (ABG)'}</span>`;
+
+  const summaryArea = document.getElementById('summary-area');
+  summaryArea.innerHTML = `
+    <div class="summary-box${isVenous ? ' venous-summary' : ''}">
+      <div class="sb-title">総合診断${isVenous ? '（推定動脈値ベース）' : ''}</div>
+      <div class="sb-main">${diagnoses.join('　/　')}</div>
+    </div>
+  `;
+
+  const grid = document.getElementById('result-grid');
+  grid.innerHTML = cards.map(c => {
+    const detailHtml = c.isTable
+      ? c.detail
+      : `<div class="rc-detail">${escHtml(c.detail)}</div>`;
+    return `
+      <div class="result-card ${c.color}">
+        <div class="rc-title">${c.title}</div>
+        <div class="rc-main">${c.main}</div>
+        ${detailHtml}
+      </div>`;
+  }).join('');
+
+  const results = document.getElementById('results');
+  results.classList.add('visible');
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 換算テーブルHTML
+function buildConvTable(pH, pco2, hco3, eph, epco2, ehco3) {
+  return `
+    <table class="conversion-table">
+      <thead><tr><th>パラメータ</th><th>静脈血（実測）</th><th>推定動脈血</th><th>換算式</th></tr></thead>
+      <tbody>
+        <tr><td>pH</td><td>${pH.toFixed(2)}</td><td class="est-val">${eph.toFixed(2)}</td><td>+0.04</td></tr>
+        <tr><td>PCO₂ (mmHg)</td><td>${fmt(pco2)}</td><td class="est-val">${fmt(epco2)}</td><td>−5</td></tr>
+        <tr><td>HCO₃⁻ (mEq/L)</td><td>${fmt(hco3)}</td><td class="est-val">${fmt(ehco3)}</td><td>−1</td></tr>
+        <tr><td>PO₂</td><td>${document.getElementById('pao2').value || '—'}</td><td colspan="2" style="color:#c53030;font-size:0.72rem">換算不可（ABG採血が必要）</td></tr>
+      </tbody>
+    </table>
+    <div style="font-size:0.7rem;color:#a0aec0;margin-top:6px">※ 安定した患者での推定値。ショック・低灌流時は乖離が大きくなります。</div>
+  `;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+function reset() {
+  ['pH','pco2','hco3','pao2','na','cl','alb','lac','fio2','age','sao2'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('bt-art').checked = true;
+  document.querySelector('input[name="acuity"][value="acute"]').checked = true;
+  onBloodTypeChange();
+  document.getElementById('results').classList.remove('visible');
+}
+</script>
+</body>
+</html>
