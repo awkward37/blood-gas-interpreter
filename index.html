@@ -584,25 +584,32 @@ function interpret() {
     lines.push(`基準値: 8–12 mEq/L　→　${agHigh ? '高AG（AG開大）' : '正常AG'}`);
 
     if (agHigh) {
+      // AG開大 → pHに関わらず代謝性アシドーシスは必ず存在する
       lines.push('');
-      lines.push('【AG開大 → 代謝性アシドーシスを探す】');
-      // 補正HCO₃⁻
+      lines.push('【AG開大 → 高AG代謝性アシドーシスが必ず存在する（pHに関わらず）】');
+      if (ipH >= 7.35) {
+        const phDesc = ipH > 7.45 ? 'アルカレミア' : '正常pH';
+        lines.push(`⚠ pH ${f(ipH,2)}（${phDesc}）であっても AG開大がある以上、代謝性アシドーシスは存在する`);
+        lines.push(`  → アルカローシスによって相殺・マスクされている可能性を考える`);
+      }
+      // pHに関わらず確定診断に追加
+      dxList.push({ label:'AG開大', value:`高AG代謝性アシドーシス（補正AG: ${f(agCorr)} mEq/L）` });
+
+      // 補正HCO₃⁻：潜在する合併障害を検出する
       const corrHCO3 = hco3 + (agCorr - 12);
+      lines.push('');
       lines.push(`補正HCO₃⁻ = 実測HCO₃⁻ + (補正AG − 12)`);
       lines.push(`           = ${f(hco3)} + (${f(agCorr)} − 12) = ${f(corrHCO3)} mEq/L`);
 
-      let corrSt, corrCol;
+      let corrSt;
       if (corrHCO3 > 26) {
-        corrSt = '→ 補正HCO₃⁻ 上昇 → 代謝性アルカローシスが潜在';
-        corrCol = 'warning';
-        dxList.push({ label:'補正HCO₃⁻（潜在性障害）', value:`代謝性アルカローシスが潜在（${f(corrHCO3)} mEq/L）` });
+        corrSt = '→ 補正HCO₃⁻ 上昇（> 26）→ 代謝性アルカローシスが潜在・合併';
+        dxList.push({ label:'補正HCO₃⁻', value:`代謝性アルカローシスが潜在・合併（補正HCO₃⁻: ${f(corrHCO3)} mEq/L）` });
       } else if (corrHCO3 < 22) {
-        corrSt = '→ 補正HCO₃⁻ 低下 → 正常AG代謝性アシドーシスが合併';
-        corrCol = 'danger';
-        dxList.push({ label:'補正HCO₃⁻（潜在性障害）', value:`正常AG代謝性アシドーシスが合併（${f(corrHCO3)} mEq/L）` });
+        corrSt = '→ 補正HCO₃⁻ 低下（< 22）→ 正常AG代謝性アシドーシスが合併';
+        dxList.push({ label:'補正HCO₃⁻', value:`正常AG代謝性アシドーシスが合併（補正HCO₃⁻: ${f(corrHCO3)} mEq/L）` });
       } else {
-        corrSt = '→ 正常範囲 → 純粋な高AG代謝性アシドーシス';
-        corrCol = 'normal';
+        corrSt = '→ 補正HCO₃⁻ 正常範囲（22–26）→ 純粋な高AG代謝性アシドーシス';
       }
       lines.push(corrSt);
 
@@ -620,8 +627,8 @@ function interpret() {
       }
 
       steps.push({
-        num:'Step 6', title:'AG + 補正HCO₃⁻', full:true, color: agHigh?'warning':'normal',
-        main:`高AG（AG開大）: ${f(agCorr)} mEq/L`,
+        num:'Step 6', title:'AG + 補正HCO₃⁻', full:true, color:'warning',
+        main:`高AG（AG開大）: ${f(agCorr)} mEq/L　→　高AG代謝性アシドーシス確定`,
         detail: lines.join('\n')
       });
     } else {
@@ -704,34 +711,33 @@ function buildDiff(pType, agHigh, lac) {
     ]});
   }
 
-  if (pType==='met-acid' || pType==='mixed') {
-    if (agHigh) {
-      const lacItems = (lac != null && lac >= 2) ? [
-        '▶ Lactate上昇あり — Type A（低酸素性）: ショック（敗血症・心原性・出血性）、心肺停止',
-        '  Type B（非低酸素性）: 肝不全、悪性腫瘍、メトホルミン、チアミン欠乏',
-      ] : [];
-      secs.push({ label:'代謝性アシドーシス（高AG）― MUDPILES', items:[
-        'M ― メタノール中毒（視力障害、血中メタノール↑）',
-        'U ― 尿毒症（CKD末期、BUN/Cr上昇）',
-        'D ― 糖尿病性ケトアシドーシス（DKA）、アルコール性ケトアシドーシス',
-        'P ― プロピレングリコール（ICU持続鎮静薬）',
-        'I ― INH（イソニアジド）中毒、鉄中毒',
-        'L ― 乳酸アシドーシス（Type A: 低酸素性、Type B: 非低酸素性）',
-        ...lacItems,
-        'E ― エチレングリコール（シュウ酸カルシウム結晶尿）',
-        'S ― サリチル酸中毒（混合型: 呼吸性アルカローシスも合併）',
-      ]});
-    } else {
-      secs.push({ label:'代謝性アシドーシス（正常AG）― HARDUPS', items:[
-        'H ― 高カロリー輸液（アミノ酸負荷）',
-        'A ― アセタゾラミド（炭酸脱水酵素阻害薬）',
-        'R ― 腎尿細管性アシドーシス（RTA type 1・2・4）',
-        'D ― 下痢・腸液大量喪失（HCO₃⁻喪失）',
-        'U ― 尿路変更術（回腸導管・尿管腸移植）',
-        'P ― 膵液瘻・膵炎（HCO₃⁻豊富な膵液喪失）',
-        'S ― 生食大量投与（高Cl性アシドーシス）',
-      ]});
-    }
+  // AG開大があれば pType・pHに関わらず必ず高AG代謝性アシドーシスの鑑別を表示
+  if (agHigh) {
+    const lacItems = (lac != null && lac >= 2) ? [
+      '▶ Lactate上昇あり — Type A（低酸素性）: ショック（敗血症・心原性・出血性）、心肺停止',
+      '  Type B（非低酸素性）: 肝不全、悪性腫瘍、メトホルミン、チアミン欠乏',
+    ] : [];
+    secs.push({ label:'代謝性アシドーシス（高AG）― MUDPILES　※pH正常・アルカレミアでも必ず存在', items:[
+      'M ― メタノール中毒（視力障害、血中メタノール↑）',
+      'U ― 尿毒症（CKD末期、BUN/Cr上昇）',
+      'D ― 糖尿病性ケトアシドーシス（DKA）、アルコール性ケトアシドーシス',
+      'P ― プロピレングリコール（ICU持続鎮静薬）',
+      'I ― INH（イソニアジド）中毒、鉄中毒',
+      'L ― 乳酸アシドーシス（Type A: 低酸素性、Type B: 非低酸素性）',
+      ...lacItems,
+      'E ― エチレングリコール（シュウ酸カルシウム結晶尿）',
+      'S ― サリチル酸中毒（混合型: 呼吸性アルカローシスも合併）',
+    ]});
+  } else if (pType==='met-acid' || pType==='mixed') {
+    secs.push({ label:'代謝性アシドーシス（正常AG）― HARDUPS', items:[
+      'H ― 高カロリー輸液（アミノ酸負荷）',
+      'A ― アセタゾラミド（炭酸脱水酵素阻害薬）',
+      'R ― 腎尿細管性アシドーシス（RTA type 1・2・4）',
+      'D ― 下痢・腸液大量喪失（HCO₃⁻喪失）',
+      'U ― 尿路変更術（回腸導管・尿管腸移植）',
+      'P ― 膵液瘻・膵炎（HCO₃⁻豊富な膵液喪失）',
+      'S ― 生食大量投与（高Cl性アシドーシス）',
+    ]});
   }
 
   if (pType==='met-alk' || pType==='mixed') {
